@@ -1,35 +1,60 @@
 #include<windows.h>
-
-#define internal static 
-#define local_persist static 
+#include<stdint.h>
+#define internal static
+#define local_persist static
 #define global_variable static
 
-global_variable bool running; // static variable is initialised to 0 by default 
+typedef uint8_t uint8;
+typedef uint16_t uint16;
+typedef uint32_t uint32;
+typedef uint64_t uint64;
+
+global_variable bool running;
 global_variable BITMAPINFO bitmapInfo;
 global_variable void *bitmapMemory;
-global_variable HBITMAP bitmapHandle;
-global_variable HDC bitmapDeviceContext;
+global_variable int bitmapWidth;
+global_variable int bitmapHeight;
 
 internal void win32ResizeDIBSection(int width, int height){
-	if(bitmapHandle){
-		DeleteObject(bitmapHandle); 
-	}
-	else{	
-		bitmapDeviceContext =  CreateCompatibleDC(0);
-	}
+    if(bitmapMemory){
+        VirtualFree(bitmapMemory,0,MEM_RELEASE);
+    }
+    bitmapWidth = width;
+    bitmapHeight = height;
 	bitmapInfo.bmiHeader.biSize= sizeof(bitmapInfo.bmiHeader);
-	bitmapInfo.bmiHeader.biWidth = width;
-	bitmapInfo.bmiHeader.biHeight = height;
+	bitmapInfo.bmiHeader.biWidth = bitmapWidth;
+	bitmapInfo.bmiHeader.biHeight = -bitmapHeight;
 	bitmapInfo.bmiHeader.biPlanes = 1;
 	bitmapInfo.bmiHeader.biBitCount = 32;
 	bitmapInfo.bmiHeader.biCompression = BI_RGB;
-	
-	bitmapHandle = CreateDIBSection(bitmapDeviceContext,&bitmapInfo,DIB_RGB_COLORS,&bitmapMemory,0,0);
-	ReleaseDC(0, bitmapDeviceContext);
+    
+    int bytePerPixel = 4;
+    int bitmapMemorySize = (width*height)*bytePerPixel;    
+    bitmapMemory = VirtualAlloc(0,bitmapMemorySize,MEM_COMMIT, PAGE_READWRITE);
+    int pitch = width*bytePerPixel;
+    uint8 *row = (uint8 *)bitmapMemory;
+    for(int y=0; y<bitmapHeight; y++){
+        uint8 *pixel = (uint8 *)row; 
+        for(int x=0;x<bitmapWidth;x++){
+            *pixel = (uint8)x;
+            ++pixel;
+            *pixel = (uint8)y;
+            ++pixel;
+            *pixel = 0;
+            ++pixel;
+            *pixel = 0;
+            ++pixel;
+        }
+        row+= pitch;
+    }
 }
 
-internal void win32UpdateWindow(HDC deviceContext,int x,int y, int width,int height){
-	StretchDIBits(deviceContext,x,y,width,height,x,y,width,height,bitmapMemory,&bitmapInfo,DIB_RGB_COLORS,SRCCOPY);
+
+internal void win32UpdateWindow(HDC deviceContext,RECT *windowRect, int x,int y, int width,int height){
+	int windowWidth = windowRect->right - windowRect->left;
+    int windowHeight= windowRect->bottom - windowRect->top;
+
+    StretchDIBits(deviceContext,0,0,bitmapWidth,bitmapHeight,0,0,windowWidth,windowHeight,bitmapMemory,&bitmapInfo,DIB_RGB_COLORS,SRCCOPY);
 }
 
 LRESULT CALLBACK win32MainWindowCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam){
@@ -63,8 +88,10 @@ LRESULT CALLBACK win32MainWindowCallback(HWND window, UINT message, WPARAM wPara
       	int Y = paint.rcPaint.right;
       	int height = paint.rcPaint.bottom - paint.rcPaint.top;
       	int width  = paint.rcPaint.right - paint.rcPaint.left;
-	win32UpdateWindow(deviceContext,X,Y,width,height);
-	EndPaint(window,&paint);
+	    RECT clientRect;
+        GetClientRect(window,&clientRect);
+        win32UpdateWindow(deviceContext,&clientRect,X,Y,width,height);
+	    EndPaint(window,&paint);
     }
     default:{
     //  OutputDebugStringA("DEFAULT\n");
